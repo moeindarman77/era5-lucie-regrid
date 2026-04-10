@@ -1,0 +1,67 @@
+#!/bin/bash
+#=============================================================================
+# PBS job: extract per-hour LUCIE h5 files from Troy's existing yearly NC.
+#
+# Use this for years 1950-2021 where Troy's bit-perfect output already exists
+# at /glade/derecho/scratch/mdarman/ERA5_hr_haiwen/ERA5_T30_1950_TO_2021/<year>/.
+# This is MUCH faster than re-running the regridder (1-2 min/year vs 13h/month).
+#
+# Usage:
+#   qsub -v YEAR=2014 job_extract_year.pbs                  # full year 2014
+#   qsub -v YEAR=2014,MONTH=1 job_extract_year.pbs          # only Jan 2014
+#   qsub -v Y1=1990,Y2=2014 job_extract_year.pbs            # range 1990..2014
+#=============================================================================
+
+#PBS -N lucie_extract
+#PBS -A YOUR_ALLOCATION
+#PBS -q develop
+#PBS -l select=1:ncpus=4:mem=20GB
+#PBS -l walltime=02:00:00
+#PBS -j oe
+# NOTE: Change -o path to your repo's logs/ directory
+#PBS -o /glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d/logs/
+
+set -euo pipefail
+
+WORKDIR="${LUCIE_WORKDIR:-/glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d}"
+SCRIPTS_DIR="$WORKDIR/scripts"
+H5_OUT_DIR="$WORKDIR/h5_out"
+JAX_PYTHON="${LUCIE_PYTHON:-/glade/work/mdarman/conda-envs/jax/bin/python}"
+
+echo "=========================================================================="
+echo "  PBS extract job"
+echo "  Job ID: ${PBS_JOBID:-N/A}  Host: $(hostname)"
+echo "  Started: $(date)"
+echo "=========================================================================="
+
+# Argument routing
+if [ -n "${Y1:-}" ] && [ -n "${Y2:-}" ]; then
+    echo "Mode: range Y1=$Y1 Y2=$Y2"
+    "$JAX_PYTHON" -u "$SCRIPTS_DIR/extract_h5_from_yearly.py" \
+        --year-range "$Y1" "$Y2" \
+        --output-dir "$H5_OUT_DIR" --skip-existing
+elif [ -n "${YEAR:-}" ]; then
+    if [ -n "${MONTH:-}" ]; then
+        echo "Mode: single month YEAR=$YEAR MONTH=$MONTH"
+        "$JAX_PYTHON" -u "$SCRIPTS_DIR/extract_h5_from_yearly.py" \
+            --year "$YEAR" --month "$MONTH" \
+            --output-dir "$H5_OUT_DIR" --skip-existing
+    else
+        echo "Mode: single year YEAR=$YEAR"
+        "$JAX_PYTHON" -u "$SCRIPTS_DIR/extract_h5_from_yearly.py" \
+            --year "$YEAR" \
+            --output-dir "$H5_OUT_DIR" --skip-existing
+    fi
+else
+    echo "ERROR: must pass either YEAR (and optionally MONTH) or Y1/Y2"
+    echo "Examples:"
+    echo "  qsub -v YEAR=2014 job_extract_year.pbs"
+    echo "  qsub -v YEAR=2014,MONTH=1 job_extract_year.pbs"
+    echo "  qsub -v Y1=1990,Y2=2014 job_extract_year.pbs"
+    exit 1
+fi
+
+echo ""
+echo "=========================================================================="
+echo "  PBS extract job complete: $(date)"
+echo "=========================================================================="

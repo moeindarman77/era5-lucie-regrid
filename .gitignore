@@ -1,0 +1,17 @@
+*.o
+*.mod
+*.exe
+*.nc
+*.h5
+*.npy
+*.npz
+*.zip
+*.grib
+__pycache__/
+*.pyc
+build/
+inputs/
+outputs/
+h5_out/
+logs/
+aux/

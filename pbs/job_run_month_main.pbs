@@ -1,0 +1,55 @@
+#!/bin/bash
+#=============================================================================
+# PBS job: Path B regridder for one month, on the MAIN queue.
+#
+# Use this when develop queue's 2h walltime isn't enough (Path B for years
+# not in Troy's archive — slow due to RDA HDF5 cold-cache decompression).
+#
+# Usage:
+#   qsub -v YEAR=2022,MONTH=1 job_run_month_main.pbs
+#   qsub -v YEAR=2022,MONTH=1,DO_H5=1 job_run_month_main.pbs
+#=============================================================================
+
+#PBS -N lucie_regrid_main
+#PBS -A YOUR_ALLOCATION
+#PBS -q main
+#PBS -l select=1:ncpus=16:mem=60GB
+#PBS -l walltime=04:00:00
+#PBS -j oe
+# NOTE: Change -o path to your repo's logs/ directory
+#PBS -o /glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d/logs/
+
+# Use 16 worker processes to parallelize the RDA HDF5 reads
+export RDA_BUILD_WORKERS=16
+
+set -euo pipefail
+
+WORKDIR="${LUCIE_WORKDIR:-/glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d}"
+SCRIPTS_DIR="$WORKDIR/scripts"
+H5_OUT_DIR="$WORKDIR/h5_out"
+
+: "${YEAR:?ERROR: -v YEAR=YYYY required}"
+: "${MONTH:?ERROR: -v MONTH=M required}"
+DO_H5=${DO_H5:-0}
+
+echo "=========================================================================="
+echo "  PBS main-queue job: y=$YEAR m=$MONTH (do_h5=$DO_H5)"
+echo "  Job ID: ${PBS_JOBID:-N/A}  Host: $(hostname)"
+echo "  Started: $(date)"
+echo "=========================================================================="
+
+source ~/.bashrc 2>/dev/null || true
+
+"$SCRIPTS_DIR/run_month.sh" "$YEAR" "$MONTH"
+
+if [ "$DO_H5" = "1" ]; then
+    ${LUCIE_PYTHON:-/glade/work/mdarman/conda-envs/jax/bin/python} \
+        "$SCRIPTS_DIR/monthly_to_lucie_h5.py" \
+        --year "$YEAR" --month "$MONTH" \
+        --output-dir "$H5_OUT_DIR" --skip-existing
+fi
+
+echo ""
+echo "=========================================================================="
+echo "  PBS main-queue job complete: $(date)"
+echo "=========================================================================="

@@ -1,0 +1,64 @@
+#!/bin/bash
+#=============================================================================
+# PBS job: process a range of years/months in sequence.
+#
+# Usage:
+#   qsub -v Y1=2014,Y2=2014 job_run_range.pbs                  # all 12 months of 2014
+#   qsub -v Y1=2014,Y2=2014,M1=1,M2=3 job_run_range.pbs        # Jan-Mar 2014
+#   qsub -v Y1=2014,Y2=2016,DO_H5=1 job_run_range.pbs          # 3 years + h5
+#=============================================================================
+
+#PBS -N lucie_regrid_range
+#PBS -A YOUR_ALLOCATION
+#PBS -q main
+#PBS -l select=1:ncpus=4:mem=40GB
+#PBS -l walltime=24:00:00
+#PBS -j oe
+# NOTE: Change -o path to your repo's logs/ directory
+#PBS -o /glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d/logs/
+
+set -euo pipefail
+
+WORKDIR="${LUCIE_WORKDIR:-/glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d}"
+SCRIPTS_DIR="$WORKDIR/scripts"
+H5_OUT_DIR="$WORKDIR/h5_out"
+
+# Validate
+: "${Y1:?ERROR: -v Y1=YYYY required}"
+: "${Y2:?ERROR: -v Y2=YYYY required}"
+M1=${M1:-1}
+M2=${M2:-12}
+DO_H5=${DO_H5:-0}
+
+echo "=========================================================================="
+echo "  PBS job: y=[$Y1..$Y2] m=[$M1..$M2] (do_h5=$DO_H5)"
+echo "  Job ID: ${PBS_JOBID:-N/A}  Host: $(hostname)"
+echo "  Started: $(date)"
+echo "=========================================================================="
+
+source ~/.bashrc 2>/dev/null || true
+
+for Y in $(seq "$Y1" "$Y2"); do
+    for M in $(seq "$M1" "$M2"); do
+        echo ""
+        echo "########################################################################"
+        echo "  Processing y=$Y m=$M  ($(date))"
+        echo "########################################################################"
+
+        if "$SCRIPTS_DIR/run_month.sh" "$Y" "$M"; then
+            if [ "$DO_H5" = "1" ]; then
+                ${LUCIE_PYTHON:-/glade/work/mdarman/conda-envs/jax/bin/python} \
+                    "$SCRIPTS_DIR/monthly_to_lucie_h5.py" \
+                    --year "$Y" --month "$M" \
+                    --output-dir "$H5_OUT_DIR" --skip-existing
+            fi
+        else
+            echo "  ✗ FAILED y=$Y m=$M (continuing...)"
+        fi
+    done
+done
+
+echo ""
+echo "=========================================================================="
+echo "  PBS range job complete: $(date)"
+echo "=========================================================================="

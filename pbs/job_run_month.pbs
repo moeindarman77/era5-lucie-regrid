@@ -1,0 +1,66 @@
+#!/bin/bash
+#=============================================================================
+# PBS job: generate LUCIE-format regridded NetCDF for one month.
+#
+# Usage:
+#   qsub -v YEAR=2014,MONTH=1 job_run_month.pbs
+#   qsub -v YEAR=2014,MONTH=1,DO_H5=1 job_run_month.pbs   # also build h5
+#
+# What it does:
+#   1) Runs run_month.sh (build inputs from RDA, regrid)
+#   2) If DO_H5=1, runs monthly_to_lucie_h5.py to produce per-hour h5 files
+#=============================================================================
+
+#PBS -N lucie_regrid
+#PBS -A YOUR_ALLOCATION
+#PBS -q develop
+#PBS -l select=1:ncpus=16:mem=60GB
+#PBS -l walltime=06:00:00
+#PBS -j oe
+# NOTE: Change -o path to your repo's logs/ directory
+#PBS -o /glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d/logs/
+
+# Tell the RDA builder to use 16 worker processes for parallel reads
+# (Path B's bottleneck is HDF5 cold-cache decompression — single-threaded
+# per file, so parallelizing across files gives near-linear speedup.)
+export RDA_BUILD_WORKERS=16
+
+set -euo pipefail
+
+WORKDIR="${LUCIE_WORKDIR:-/glade/derecho/scratch/mdarman/sst_data/era5_data_download/gen_lucie_3d}"
+SCRIPTS_DIR="$WORKDIR/scripts"
+H5_OUT_DIR="$WORKDIR/h5_out"
+
+# Validate environment-passed args
+: "${YEAR:?ERROR: -v YEAR=YYYY required}"
+: "${MONTH:?ERROR: -v MONTH=M required}"
+DO_H5=${DO_H5:-0}
+
+echo "=========================================================================="
+echo "  PBS job: y=$YEAR m=$MONTH (do_h5=$DO_H5)"
+echo "  Job ID: ${PBS_JOBID:-N/A}  Host: $(hostname)"
+echo "  Started: $(date)"
+echo "=========================================================================="
+
+# Source bashrc so conda + modules work in the batch environment
+source ~/.bashrc 2>/dev/null || true
+
+# Step 1: regridding
+"$SCRIPTS_DIR/run_month.sh" "$YEAR" "$MONTH"
+
+# Step 2 (optional): h5 conversion
+if [ "$DO_H5" = "1" ]; then
+    echo ""
+    echo "=========================================================================="
+    echo "  Step 6: convert to per-hour LUCIE h5 files"
+    echo "=========================================================================="
+    ${LUCIE_PYTHON:-/glade/work/mdarman/conda-envs/jax/bin/python} \
+        "$SCRIPTS_DIR/monthly_to_lucie_h5.py" \
+        --year "$YEAR" --month "$MONTH" \
+        --output-dir "$H5_OUT_DIR" --skip-existing
+fi
+
+echo ""
+echo "=========================================================================="
+echo "  PBS job complete: $(date)"
+echo "=========================================================================="
